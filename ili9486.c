@@ -193,7 +193,6 @@ static void ili9486_execute_command_list(struct ili9486_data *lcd, const u8 *add
 	numCommands = *addr++;
 	while (numCommands--) {
 		u8 cmd = *addr++;
-
 		ili9486_write_command(lcd, cmd);
 		numArgs = *addr++;
 		ms = numArgs & DELAY;
@@ -644,6 +643,7 @@ static int ili9486_remove(struct platform_device *pdev)
 	fb_dealloc_cmap(&lcd->lcd_info->cmap);
 	kfree(lcd->lcd_info->pseudo_palette);
 	vfree(lcd->lcd_info->screen_base);
+
 	framebuffer_release(lcd->lcd_info);*/
 
 	dev_info(&pdev->dev, "The ILI9486 driver removed\n");

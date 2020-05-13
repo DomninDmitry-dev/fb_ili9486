@@ -176,13 +176,13 @@ static void ili9486_reset(struct ili9486_data *lcd)
 static void ili9486_write_command(struct ili9486_data *lcd, u8 cmd)
 {
 	gpiod_set_value(lcd->gpiod_wr, 0);
-	spi_write(lcd->spi, &cmd, sizeof(cmd)); //////////////////////////
+	//spi_write(lcd->spi, &cmd, sizeof(cmd)); //////////////////////////
 }
 
 static void ili9486_write_data(struct ili9486_data *lcd, u8 *buff, size_t buff_size)
 {
 	gpiod_set_value(lcd->gpiod_wr, 1);
-	spi_write(lcd->spi, buff, buff_size); ///////////////////////////
+	//spi_write(lcd->spi, buff, buff_size); ///////////////////////////
 }
 
 static void ili9486_execute_command_list(struct ili9486_data *lcd, const u8 *addr)
@@ -193,7 +193,6 @@ static void ili9486_execute_command_list(struct ili9486_data *lcd, const u8 *add
 	numCommands = *addr++;
 	while (numCommands--) {
 		u8 cmd = *addr++;
-
 		ili9486_write_command(lcd, cmd);
 		numArgs = *addr++;
 		ms = numArgs & DELAY;
@@ -495,7 +494,7 @@ static int ili9486_probe(struct platform_device *pdev)
 	ret = gpiod_direction_output(lcd->gpiod_wr, 0);
 
 	/* The RS gets a GPIO pin number */
-	lcd->gpiod_rs = devm_gpiod_get_optional(&pdev->dev, "wr", GPIOD_OUT_LOW);
+	lcd->gpiod_rs = devm_gpiod_get_optional(&pdev->dev, "rs", GPIOD_OUT_LOW);
 	if (IS_ERR(lcd->gpiod_rs)) {
 		ret = PTR_ERR(lcd->gpiod_rs);
 		if (ret != -EPROBE_DEFER)
@@ -635,15 +634,16 @@ static int ili9486_probe(struct platform_device *pdev)
 
 static int ili9486_remove(struct platform_device *pdev)
 {
-	struct ili9486_data *lcd = platform_get_drvdata(pdev);
+	/*struct ili9486_data *lcd = platform_get_drvdata(pdev);
 
-	/*ili9486_write_command(lcd, ILI9486_DISPOFF);
+	ili9486_write_command(lcd, ILI9486_DISPOFF);
 
 	unregister_framebuffer(lcd->lcd_info);
 	fb_deferred_io_cleanup(lcd->lcd_info);
 	fb_dealloc_cmap(&lcd->lcd_info->cmap);
 	kfree(lcd->lcd_info->pseudo_palette);
 	vfree(lcd->lcd_info->screen_base);
+
 	framebuffer_release(lcd->lcd_info);*/
 
 	dev_info(&pdev->dev, "The ILI9486 driver removed\n");
@@ -664,7 +664,6 @@ static struct platform_driver ili9486_driver = {
 	},
 	.probe = ili9486_probe,
 	.remove = ili9486_remove,
-	.id_table = ili9486_idtable,
 };
 
 module_platform_driver(ili9486_driver);

@@ -16,16 +16,20 @@
 #include <linux/io.h>
 #include <linux/dma-mapping.h>
 
+//#include "ili9486_image.h"
+
+// https://www.displaytech-us.com/forum/ili9341-initialization-code
+
 #define ILI9486_MADCTL_RGB	0x00
 #define ILI9486_MADCTL_BGR	0x08
 #define ILI9486_MADCTL_MY	0x80
 #define ILI9486_MADCTL_MX	0x40
 
 // 1.44" display, default orientation
-#define ILI9486_WIDTH		128
-#define ILI9486_HEIGHT		128
-#define ILI9486_XSTART		2
-#define ILI9486_YSTART		3
+#define ILI9486_WIDTH		480
+#define ILI9486_HEIGHT		320
+#define ILI9486_XSTART		0
+#define ILI9486_YSTART		0
 #define ILI9486_ROTATION	(ILI9486_MADCTL_MY | ILI9486_MADCTL_MX | \
 						ILI9486_MADCTL_BGR)
 
@@ -175,14 +179,35 @@ static void ili9486_reset(struct ili9486_data *lcd)
 
 static void ili9486_write_command(struct ili9486_data *lcd, u8 cmd)
 {
+	gpiod_set_value(lcd->gpiod_rs, 0);
 	gpiod_set_value(lcd->gpiod_wr, 0);
-	//spi_write(lcd->spi, &cmd, sizeof(cmd)); //////////////////////////
+	gpiod_set_value(lcd->gpiod_data[PIN_DB0], (cmd & 0x01)?1:0);
+	gpiod_set_value(lcd->gpiod_data[PIN_DB1], (cmd & 0x02)?1:0);
+	gpiod_set_value(lcd->gpiod_data[PIN_DB2], (cmd & 0x04)?1:0);
+	gpiod_set_value(lcd->gpiod_data[PIN_DB3], (cmd & 0x08)?1:0);
+	gpiod_set_value(lcd->gpiod_data[PIN_DB4], (cmd & 0x10)?1:0);
+	gpiod_set_value(lcd->gpiod_data[PIN_DB5], (cmd & 0x20)?1:0);
+	gpiod_set_value(lcd->gpiod_data[PIN_DB6], (cmd & 0x40)?1:0);
+	gpiod_set_value(lcd->gpiod_data[PIN_DB7], (cmd & 0x80)?1:0);
+	gpiod_set_value(lcd->gpiod_wr, 1);
 }
 
 static void ili9486_write_data(struct ili9486_data *lcd, u8 *buff, size_t buff_size)
 {
+	int cnt;
+	gpiod_set_value(lcd->gpiod_rs, 1);
+	gpiod_set_value(lcd->gpiod_wr, 0);
+	for (cnt = 0; cnt < buff_size; cnt++) {
+		gpiod_set_value(lcd->gpiod_data[PIN_DB0], (buff[cnt] & 0x01)?1:0);
+		gpiod_set_value(lcd->gpiod_data[PIN_DB1], (buff[cnt] & 0x02)?1:0);
+		gpiod_set_value(lcd->gpiod_data[PIN_DB2], (buff[cnt] & 0x04)?1:0);
+		gpiod_set_value(lcd->gpiod_data[PIN_DB3], (buff[cnt] & 0x08)?1:0);
+		gpiod_set_value(lcd->gpiod_data[PIN_DB4], (buff[cnt] & 0x10)?1:0);
+		gpiod_set_value(lcd->gpiod_data[PIN_DB5], (buff[cnt] & 0x20)?1:0);
+		gpiod_set_value(lcd->gpiod_data[PIN_DB6], (buff[cnt] & 0x40)?1:0);
+		gpiod_set_value(lcd->gpiod_data[PIN_DB7], (buff[cnt] & 0x80)?1:0);
+	}
 	gpiod_set_value(lcd->gpiod_wr, 1);
-	//spi_write(lcd->spi, buff, buff_size); ///////////////////////////
 }
 
 static void ili9486_execute_command_list(struct ili9486_data *lcd, const u8 *addr)
@@ -211,8 +236,8 @@ static void ili9486_execute_command_list(struct ili9486_data *lcd, const u8 *add
 	}
 }
 
-static void ili9486_set_address_window(struct ili9486_data *lcd, u8 x0, u8 y0,
-	u8 x1, u8 y1)
+static void ili9486_set_address_window(struct ili9486_data *lcd, u16 x0, u16 y0,
+	u16 x1, u16 y1)
 {
 	u8 data[] = {0x00, x0 + ILI9486_XSTART, 0x00, x1 + ILI9486_XSTART};
 
@@ -255,7 +280,7 @@ static void ili9486_update_screen(struct ili9486_data *lcd)
 	mutex_unlock(&(lcd->io_lock));
 }
 
-static void ili9486_load_image(struct ili9486_data *lcd, const u8 *image)
+/*static void ili9486_load_image(struct ili9486_data *lcd, const u8 *image)
 {
 	u16 *vmem;
 	int i;
@@ -269,7 +294,7 @@ static void ili9486_load_image(struct ili9486_data *lcd, const u8 *image)
 	memcpy(lcd->lcd_info->screen_base, (u8 *)vmem, ILI9486_WIDTH *
 		ILI9486_HEIGHT * BPP / 8);
 	ili9486_update_screen(lcd);
-}
+}*/
 
 static ssize_t ili9486fb_write(struct fb_info *info, const char __user *buf,
 		size_t count, loff_t *ppos)
@@ -461,8 +486,8 @@ static int ili9486_probe(struct platform_device *pdev)
 	dev_info(&pdev->dev, "Gpio data count: %d\n", gpiocnt);
 
 	/*
-	 * Если используется devm_gpiod_get_index, то gpiod_put вызывается
-	 * автоматически при выгрузке модуля
+	 * If devm_gpiod_get_index is used,
+	 * gpiod_put is called automatically when unloading the module
 	 * */
 	for (pins = 0; pins < gpiocnt; pins++) {
 		lcd->gpiod_data[pins] = devm_gpiod_get_index(&pdev->dev, "db", pins,
@@ -480,6 +505,7 @@ static int ili9486_probe(struct platform_device *pdev)
 			return -EIO;
 		}
 	}
+	dev_info(&pdev->dev, "Gpio DB[0-15] loaded");
 
 	/* The WR gets a GPIO pin number */
 	lcd->gpiod_wr = devm_gpiod_get_optional(&pdev->dev, "wr", GPIOD_OUT_HIGH);
@@ -492,6 +518,7 @@ static int ili9486_probe(struct platform_device *pdev)
 		return ret;
 	}
 	ret = gpiod_direction_output(lcd->gpiod_wr, 0);
+	dev_info(&pdev->dev, "Gpio WR loaded");
 
 	/* The RS gets a GPIO pin number */
 	lcd->gpiod_rs = devm_gpiod_get_optional(&pdev->dev, "rs", GPIOD_OUT_LOW);
@@ -504,6 +531,7 @@ static int ili9486_probe(struct platform_device *pdev)
 		return ret;
 	}
 	ret = gpiod_direction_output(lcd->gpiod_rs, 0);
+	dev_info(&pdev->dev, "Gpio RS loaded");
 
 	/* The RST gets a GPIO pin number */
 	lcd->gpiod_reset = devm_gpiod_get_optional(&pdev->dev, "reset", GPIOD_OUT_HIGH);
@@ -516,11 +544,7 @@ static int ili9486_probe(struct platform_device *pdev)
 		return ret;
 	}
 	ret = gpiod_direction_output(lcd->gpiod_reset, 0);
-
-	///////////////////////
-	dev_info(&pdev->dev, "The ILI9486 driver probed\n");
-	return 0;
-	///////////////////////
+	dev_info(&pdev->dev, "Gpio RESET loaded");
 
 	ili9486_reset(lcd);
 	ili9486_execute_command_list(lcd, init_cmds1);
@@ -612,7 +636,7 @@ static int ili9486_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	// Test load image 128x128
+	// Test load image 480x320
 	//ili9486_load_image(lcd, lcd_image);
 	//msleep(2000);
 
@@ -634,7 +658,7 @@ static int ili9486_probe(struct platform_device *pdev)
 
 static int ili9486_remove(struct platform_device *pdev)
 {
-	/*struct ili9486_data *lcd = platform_get_drvdata(pdev);
+	struct ili9486_data *lcd = platform_get_drvdata(pdev);
 
 	ili9486_write_command(lcd, ILI9486_DISPOFF);
 
@@ -644,7 +668,7 @@ static int ili9486_remove(struct platform_device *pdev)
 	kfree(lcd->lcd_info->pseudo_palette);
 	vfree(lcd->lcd_info->screen_base);
 
-	framebuffer_release(lcd->lcd_info);*/
+	framebuffer_release(lcd->lcd_info);
 
 	dev_info(&pdev->dev, "The ILI9486 driver removed\n");
 	return 0;

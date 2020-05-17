@@ -16,7 +16,7 @@
 #include <linux/io.h>
 #include <linux/dma-mapping.h>
 
-//#include "ili9486_image.h"
+#include "ili9486_image.h"
 
 // https://www.displaytech-us.com/forum/ili9341-initialization-code
 
@@ -73,9 +73,9 @@
 static u_int refreshrate = REFRESHRATE;
 module_param(refreshrate, uint, 0);
 
-static const u8 init_cmds1[] = {
+static const u16 init_cmds1[] = {
 	// Init for ili9486, part 1 (red or green tab)
-	13,			// 13 commands in list:
+	7,			// 13 commands in list:
 	ILI9486_SWRESET, DELAY,	// 1: Software reset, 0 args, w/delay
 	150,			// 150 ms delay
 	ILI9486_DISPOFF, DELAY,	// 4: Main screen turn off, no args w/delay
@@ -89,10 +89,10 @@ static const u8 init_cmds1[] = {
 	ILI9486_PWCTR3, 1,
 	0x44,
 	ILI9486_VMCTR1, 4,
-	0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00
 }; // 16-bit color
 
-static const u8 init_cmds2[] = {
+static const u16 init_cmds2[] = {
 	// Init for ili9486, part 2
 	2,			// 2 commands in list:
 	ILI9486_CASET, 4,	// 1: Column addr set, 4 args, no delay:
@@ -103,7 +103,7 @@ static const u8 init_cmds2[] = {
 	0x01, 0xDF		// XEND = 480
 };
 
-static const u8 init_cmds3[] = {
+static const u16 init_cmds3[] = {
 	// Init for ili9486, part 3
 	4,			// 4 commands in list:
 	ILI9486_GMCTRP1, 15,	// 1: Magical unicorn dust, 16 args, no delay:
@@ -123,7 +123,7 @@ static const u8 init_cmds3[] = {
 };
 
 enum ili9486_pin {
-	PIN_DB0,	/* Optional */
+	PIN_DB0 = 0,	/* Optional */
 	PIN_DB1,	/* Optional */
 	PIN_DB2,	/* Optional */
 	PIN_DB3,	/* Optional */
@@ -143,6 +143,7 @@ enum ili9486_pin {
 };
 
 struct ili9486_data {
+	struct device dev;
 	struct gpio_desc *gpiod_data[PIN_DB_MAX];
 	struct gpio_desc *gpiod_wr;
 	struct gpio_desc *gpiod_rs;
@@ -151,7 +152,7 @@ struct ili9486_data {
 	struct mutex io_lock;
 	u32 height;
 	u32 width;
-	u16 *ssbuf;
+	//u16 *ssbuf;
 };
 
 static void ili9486_reset(struct ili9486_data *lcd)
@@ -173,30 +174,40 @@ static void ili9486_write_command(struct ili9486_data *lcd, u8 cmd)
 	gpiod_set_value(lcd->gpiod_data[PIN_DB5], (cmd & 0x20)?1:0);
 	gpiod_set_value(lcd->gpiod_data[PIN_DB6], (cmd & 0x40)?1:0);
 	gpiod_set_value(lcd->gpiod_data[PIN_DB7], (cmd & 0x80)?1:0);
+	//dev_info(&lcd->dev, "command: 0x%02x", cmd);
 	gpiod_set_value(lcd->gpiod_wr, 1);
 }
 
-static void ili9486_write_data(struct ili9486_data *lcd, u8 *buff, size_t buff_size)
+static void ili9486_write_data(struct ili9486_data *lcd, u16 *buff, size_t buff_size)
 {
 	int cnt;
 	gpiod_set_value(lcd->gpiod_rs, 1);
 	gpiod_set_value(lcd->gpiod_wr, 0);
 	for (cnt = 0; cnt < buff_size; cnt++) {
-		gpiod_set_value(lcd->gpiod_data[PIN_DB0], (buff[cnt] & 0x01)?1:0);
-		gpiod_set_value(lcd->gpiod_data[PIN_DB1], (buff[cnt] & 0x02)?1:0);
-		gpiod_set_value(lcd->gpiod_data[PIN_DB2], (buff[cnt] & 0x04)?1:0);
-		gpiod_set_value(lcd->gpiod_data[PIN_DB3], (buff[cnt] & 0x08)?1:0);
-		gpiod_set_value(lcd->gpiod_data[PIN_DB4], (buff[cnt] & 0x10)?1:0);
-		gpiod_set_value(lcd->gpiod_data[PIN_DB5], (buff[cnt] & 0x20)?1:0);
-		gpiod_set_value(lcd->gpiod_data[PIN_DB6], (buff[cnt] & 0x40)?1:0);
-		gpiod_set_value(lcd->gpiod_data[PIN_DB7], (buff[cnt] & 0x80)?1:0);
+		gpiod_set_value(lcd->gpiod_data[PIN_DB0], (buff[cnt] & 0x0001)?1:0);
+		gpiod_set_value(lcd->gpiod_data[PIN_DB1], (buff[cnt] & 0x0002)?1:0);
+		gpiod_set_value(lcd->gpiod_data[PIN_DB2], (buff[cnt] & 0x0004)?1:0);
+		gpiod_set_value(lcd->gpiod_data[PIN_DB3], (buff[cnt] & 0x0008)?1:0);
+		gpiod_set_value(lcd->gpiod_data[PIN_DB4], (buff[cnt] & 0x0010)?1:0);
+		gpiod_set_value(lcd->gpiod_data[PIN_DB5], (buff[cnt] & 0x0020)?1:0);
+		gpiod_set_value(lcd->gpiod_data[PIN_DB6], (buff[cnt] & 0x0040)?1:0);
+		gpiod_set_value(lcd->gpiod_data[PIN_DB7], (buff[cnt] & 0x0080)?1:0);
+		gpiod_set_value(lcd->gpiod_data[PIN_DB8], (buff[cnt] & 0x0100)?1:0);
+		gpiod_set_value(lcd->gpiod_data[PIN_DB9], (buff[cnt] & 0x0200)?1:0);
+		gpiod_set_value(lcd->gpiod_data[PIN_DB10], (buff[cnt] & 0x0400)?1:0);
+		gpiod_set_value(lcd->gpiod_data[PIN_DB11], (buff[cnt] & 0x0800)?1:0);
+		gpiod_set_value(lcd->gpiod_data[PIN_DB12], (buff[cnt] & 0x1000)?1:0);
+		gpiod_set_value(lcd->gpiod_data[PIN_DB13], (buff[cnt] & 0x2000)?1:0);
+		gpiod_set_value(lcd->gpiod_data[PIN_DB14], (buff[cnt] & 0x4000)?1:0);
+		gpiod_set_value(lcd->gpiod_data[PIN_DB15], (buff[cnt] & 0x8000)?1:0);
+		//dev_info(&lcd->dev, "data: 0x%04x", buff[cnt]);
 	}
 	gpiod_set_value(lcd->gpiod_wr, 1);
 }
 
-static void ili9486_execute_command_list(struct ili9486_data *lcd, const u8 *addr)
+static void ili9486_execute_command_list(struct ili9486_data *lcd, const u16 *addr)
 {
-	u8 numCommands, numArgs;
+	u16 numCommands, numArgs;
 	u16 ms;
 
 	numCommands = *addr++;
@@ -207,7 +218,7 @@ static void ili9486_execute_command_list(struct ili9486_data *lcd, const u8 *add
 		ms = numArgs & DELAY;
 		numArgs &= ~DELAY;
 		if (numArgs) {
-			ili9486_write_data(lcd, (u8 *)addr, numArgs);
+			ili9486_write_data(lcd, (u16 *)addr, numArgs);
 			addr += numArgs;
 		}
 
@@ -216,6 +227,7 @@ static void ili9486_execute_command_list(struct ili9486_data *lcd, const u8 *add
 			if (ms == 255)
 				ms = 500;
 			mdelay(ms);
+			//dev_info(&lcd->dev, "delay: 0x%04x", ms);
 		}
 	}
 }
@@ -223,7 +235,7 @@ static void ili9486_execute_command_list(struct ili9486_data *lcd, const u8 *add
 static void ili9486_set_address_window(struct ili9486_data *lcd, u16 x0, u16 y0,
 	u16 x1, u16 y1)
 {
-	u8 data[] = {0x00, x0 + ILI9486_XSTART, 0x00, x1 + ILI9486_XSTART};
+	u16 data[] = {0x00, x0 + ILI9486_XSTART, 0x00, x1 + ILI9486_XSTART};
 
 	ili9486_write_command(lcd, ILI9486_CASET);
 	ili9486_write_data(lcd, data, sizeof(data));
@@ -240,16 +252,16 @@ static void ili9486_set_address_window(struct ili9486_data *lcd, u16 x0, u16 y0,
 
 static void ili9486_update_screen(struct ili9486_data *lcd)
 {
-	u16 *vmem;
-	int i;
+	//u16 *vmem;
+	//int i;
 
 	//vmem = (u16 *)lcd->lcd_info->screen_base;
 
-	u16 *vmem16 = (u16 *)lcd->lcd_info->screen_base;
-	vmem = lcd->ssbuf;
+	//u16 *vmem16 = (u16 *)lcd->lcd_info->screen_base;
+	//vmem = lcd->ssbuf;
 
-	for (i = 0; i < ILI9486_WIDTH * ILI9486_HEIGHT * BPP / 8 / 2; i++)
-		vmem[i] = swab16(vmem16[i]);
+	//for (i = 0; i < ILI9486_WIDTH * ILI9486_HEIGHT * BPP / 8 / 2; i++)
+		//vmem[i] = swab16(vmem16[i]);
 
 	mutex_lock(&(lcd->io_lock));
 
@@ -258,27 +270,30 @@ static void ili9486_update_screen(struct ili9486_data *lcd)
 						ILI9486_HEIGHT - 1);
 
 	/* Blast framebuffer to ILI9486 internal display RAM */
-	ili9486_write_data(lcd, (u8 *)vmem,
-		ILI9486_WIDTH * ILI9486_HEIGHT * BPP / 8);
+	ili9486_write_data(lcd, (u16*)lcd->lcd_info->screen_base,
+		ILI9486_WIDTH * ILI9486_HEIGHT * BPP / 16);
 
 	mutex_unlock(&(lcd->io_lock));
 }
 
-/*static void ili9486_load_image(struct ili9486_data *lcd, const u8 *image)
+static void ili9486_load_image(struct ili9486_data *lcd, const u8 *image)
 {
-	u16 *vmem;
-	int i;
+	//u16 *vmem;
+	//int i;
 
-	u16 *vmem16 = (u16 *)image;
-	vmem = lcd->ssbuf;
+	//u16 *vmem16 = (u16 *)image;
+	//vmem = lcd->ssbuf;
 
-	for (i = 0; i < ILI9486_WIDTH * ILI9486_HEIGHT * BPP / 8 / 2; i++)
-		vmem[i] = swab16(vmem16[i]);
+	//for (i = 0; i < ILI9486_WIDTH * ILI9486_HEIGHT * BPP / 8 / 2; i++)
+	//	vmem[i] = swab16(vmem16[i]);
 
-	memcpy(lcd->lcd_info->screen_base, (u8 *)vmem, ILI9486_WIDTH *
-		ILI9486_HEIGHT * BPP / 8);
+	//memcpy(lcd->lcd_info->screen_base, (u8 *)vmem, ILI9486_WIDTH *
+	//	ILI9486_HEIGHT * BPP / 8);
+
+	memcpy(lcd->lcd_info->screen_base, (u8 *)image, 32768);
+
 	ili9486_update_screen(lcd);
-}*/
+}
 
 static ssize_t ili9486fb_write(struct fb_info *info, const char __user *buf,
 		size_t count, loff_t *ppos)
@@ -461,6 +476,8 @@ static int ili9486_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
+	lcd->dev = pdev->dev;
+
 	gpiocnt = gpiod_count(&pdev->dev, "db");
 	if (gpiocnt < 0) {
 		dev_err(&pdev->dev, "error get count gpio! \n");
@@ -610,19 +627,19 @@ static int ili9486_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, lcd);
 
 	/*It allocated swapped shadow buffer */
-	lcd->ssbuf = kmalloc(vmem_size, GFP_KERNEL);
-	if (!lcd->ssbuf) {
-		fb_deferred_io_cleanup(info);
-		fb_dealloc_cmap(&info->cmap);
-		kfree(info->pseudo_palette);
-		vfree(vmem);
-		devm_kfree(&pdev->dev, lcd);
-		return -ENOMEM;
-	}
+	// lcd->ssbuf = kmalloc(vmem_size, GFP_KERNEL);
+	// if (!lcd->ssbuf) {
+	// 	fb_deferred_io_cleanup(info);
+	// 	fb_dealloc_cmap(&info->cmap);
+	// 	kfree(info->pseudo_palette);
+	// 	vfree(vmem);
+	// 	devm_kfree(&pdev->dev, lcd);
+	// 	return -ENOMEM;
+	// }
 
 	// Test load image 480x320
-	//ili9486_load_image(lcd, lcd_image);
-	//msleep(2000);
+	ili9486_load_image(lcd, lcd_image);
+	msleep(2000);
 
 	ret = register_framebuffer(info);
 	if (ret) {

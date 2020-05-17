@@ -6,7 +6,7 @@ while [ ! -z "$1" ] ; do
             --clean)
                 echo "Clean module sources"
                 make clean
-		rm -f ${DTSDIR}/${MODNAME}.dtbo
+                rm -f ${DTSDIR}/${MODNAME}.dtbo
                 ;;
             --module)
                 echo "Build module"
@@ -14,9 +14,9 @@ while [ ! -z "$1" ] ; do
                 ;;
             --dtbo)
                 echo "Compile dtbo"
-		${KERNELDIR}/scripts/dtc/dtc -I dts -O dtb ${DTC_FLAGS} \
-			-o ${DTSDIR}/${MODNAME}.dtbo \
-			${DTSDIR}/${MODNAME}.dtsi
+                ${KERNELDIR}/scripts/dtc/dtc -I dts -O dtb ${DTC_FLAGS} \
+                -o ${DTSDIR}/${MODNAME}.dtbo \
+                ${DTSDIR}/${MODNAME}.dtsi
                 ;;
             --copymod)
                 echo "Copy module to board"
@@ -24,12 +24,16 @@ while [ ! -z "$1" ] ; do
                 ;;
             --copydtbo)
                 echo "Copy overlay to board"
-		scp ${DTSDIR}/${MODNAME}.dtbo \
-			${ADDR_BOARD}:${DTBDIR}/${MODNAME}.dtbo
+                scp ${DTSDIR}/${MODNAME}.dtbo \
+                ${ADDR_BOARD}:${DTBDIR}/${MODNAME}.dtbo
                 ;;
             --copysshid)
                 echo "Copy ssh id to board"
-		ssh-copy-id -i ~/.ssh/id_rsa.pub ${ADDR_BOARD}
+                ssh-copy-id -i ~/.ssh/id_rsa.pub ${ADDR_BOARD}
+                ;;
+            --reboot)
+                echo "The board reboot"
+                ssh ${ADDR_BOARD} 'sudo reboot'
                 ;;
         esac
         shift

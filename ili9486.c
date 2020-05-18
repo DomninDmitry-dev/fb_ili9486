@@ -25,13 +25,15 @@
 #define ILI9486_MADCTL_BGR	0x08
 #define ILI9486_MADCTL_MY	0x80
 #define ILI9486_MADCTL_MX	0x40
+#define ILI9486_MADCTL_MV	0x20
+#define ILI9486_MADCTL_ML	0x10
 
 // 1.44" display, default orientation
 #define ILI9486_WIDTH		480
 #define ILI9486_HEIGHT		320
 #define ILI9486_XSTART		0
 #define ILI9486_YSTART		0
-#define ILI9486_ROTATION	(ILI9486_MADCTL_MX)
+#define ILI9486_ROTATION	(ILI9486_MADCTL_MV | ILI9486_MADCTL_MY)
 
 // Commands
 #define ILI9486_SWRESET		0x01 // SoftWare Reset
@@ -56,6 +58,7 @@
 #define ILI9486_RASET		0x2B
 #define ILI9486_GMCTRP1		0xE0
 #define ILI9486_GMCTRN1		0xE1
+#define ILI9486_DGAMMA		0xE2
 #define ILI9486_NORON		0x13
 #define ILI9486_DISPON		0x29
 #define ILI9486_DISPOFF		0x28
@@ -77,7 +80,7 @@ module_param(refreshrate, uint, 0);
 
 static const u16 init_cmds[] = {
 	// Init for ili9486, part 1 (red or green tab)
-	21,
+	16,
 
 	ILI9486_SWRESET, DELAY,	// 1: Software reset, 0 args, w/delay
 	150,			// 150 ms delay
@@ -88,7 +91,7 @@ static const u16 init_cmds[] = {
 	ILI9486_SLPOUT, DELAY,	// 2: Out of sleep mode, 0 args, w/delay
 	255,			// 255 ms delay
 
-	0xF2, 9,
+	/*0xF2, 9,
 	0x1C, 0xA3, 0x32, 0x02, 0xB2, 0x12, 0xFF, 0x12, 0x00,
 
 	0xF1, 2,
@@ -98,7 +101,7 @@ static const u16 init_cmds[] = {
 	0x21, 0x04,
 
 	0xF9, 2,
-	0x00, 0x08,
+	0x00, 0x08,*/
 
 	ILI9486_PWCTR1, 2,
 	0x0D, 0x0D,
@@ -107,25 +110,22 @@ static const u16 init_cmds[] = {
 	0x43, 0x00,
 
 	ILI9486_PWCTR3, 1,
-	0x00,
+	0x44,
 
-	ILI9486_VMCTR1, 2,
-	0x00, 0x48,
-
-	ILI9486_DFCTR, 3,
-	0x00, 0x22, 0x3B,
+	ILI9486_VMCTR1, 4,
+	0x00, 0x00, 0x00, 0x00,
 
 	ILI9486_GMCTRP1, 15,	// PGAMCTRL (Positive Gamma Control)
-	0x0F, 0x24, 0x1C, 0x0A,
-	0x0F, 0x08, 0x43, 0x88,
-	0x32, 0x0F, 0x10, 0x06,
-	0x0F, 0x07, 0x00,
+	0x0F, 0x1F, 0x1C, 0x0C,
+	0x0F, 0x08, 0x48, 0x98,
+	0x37, 0x0A, 0x13, 0x04,
+	0x11, 0x0D, 0x00,
 
 	ILI9486_GMCTRN1, 15,	// NGAMCTRL (Negative Gamma Control)
-	0x0F, 0x38, 0x30, 0x09,
-	0x0F, 0x0F, 0x4E, 0x77,
-	0x3C, 0x07, 0x10, 0x05,
-	0x23, 0x1B, 0x00,
+	0x0F, 0x32, 0x2E, 0x0B,
+	0x0D, 0x05, 0x47, 0x75,
+	0x37, 0x06, 0x10, 0x03,
+	0x24, 0x20, 0x00,
 
 	ILI9486_INVOFF, 1,	// Display Inversion OFF
 	0x00,
@@ -183,7 +183,7 @@ struct ili9486_data {
 	u32 width;
 	struct device_attribute dev_attr_power;
 	u8 statePower;
-	//u16 *ssbuf;
+	//u8 *ssbuf;
 };
 
 static void ili9486_reset(struct ili9486_data *lcd)
@@ -233,6 +233,7 @@ static void ili9486_write_data(struct ili9486_data *lcd, u16 *buff, size_t buff_
 		gpiod_set_value(lcd->gpiod_data[PIN_DB15], (buff[cnt] & 0x8000)?1:0);
 		//dev_info(&lcd->dev, "data: 0x%04x", buff[cnt]);
 		gpiod_set_value(lcd->gpiod_wr, 1);
+		ndelay(99999);
 	}
 }
 
@@ -349,9 +350,20 @@ static void ili9486_load_image(struct ili9486_data *lcd, const u8 *image)
 	//memcpy(lcd->lcd_info->screen_base, (u8 *)vmem, ILI9486_WIDTH *
 	//	ILI9486_HEIGHT * BPP / 8);
 
-	memcpy(lcd->lcd_info->screen_base, (u8 *)image, 32768);
+	//memcpy(lcd->ssbuf, (u8 *)image, 32768);
 
-	ili9486_update_screen(lcd);
+	//ili9486_update_screen(lcd);
+
+	mutex_lock(&(lcd->io_lock));
+
+	/* Set row/column data window */
+	ili9486_set_address_window(lcd, 0, 0, ILI9486_WIDTH - 1,
+						ILI9486_HEIGHT - 1);
+
+	/* Blast framebuffer to ILI9486 internal display RAM */
+	ili9486_write_data(lcd, (u16 *)image, 32768 / 2);
+
+	mutex_unlock(&(lcd->io_lock));
 }
 
 static void ili9486_fill_rectangle(struct ili9486_data *lcd, u16 x, u16 y, u16 w, u16 h,
@@ -722,7 +734,7 @@ static int ili9486_probe(struct platform_device *pdev)
 	// Test load image 480x320
 	ili9486_load_image(lcd, lcd_image);
 	//ili9486_fill_rectangle(lcd, 0, 0, ILI9486_WIDTH, ILI9486_HEIGHT, 0x07A5);
-	msleep(2000);
+	msleep(5000);
 
 	/*ret = register_framebuffer(info);
 	if (ret) {

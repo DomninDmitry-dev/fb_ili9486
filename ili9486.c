@@ -15,6 +15,7 @@
 #include <linux/fb.h>
 #include <linux/io.h>
 #include <linux/dma-mapping.h>
+#include <linux/platform_device.h> /* For platform devices */
 
 #include "ili9486_image.h"
 
@@ -30,8 +31,7 @@
 #define ILI9486_HEIGHT		320
 #define ILI9486_XSTART		0
 #define ILI9486_YSTART		0
-#define ILI9486_ROTATION	(ILI9486_MADCTL_MY | ILI9486_MADCTL_MX | \
-						ILI9486_MADCTL_BGR)
+#define ILI9486_ROTATION	(ILI9486_MADCTL_MX)
 
 // Commands
 #define ILI9486_SWRESET		0x01 // SoftWare Reset
@@ -40,6 +40,7 @@
 #define ILI9486_FRMCTR2		0xB2 // In idle Mode (8 colors)
 #define ILI9486_FRMCTR3		0xB3 // In partial Mode + Full Colors
 #define ILI9486_INVCTR		0xB4 // Display inversion control
+#define ILI9486_DFCTR		0xB6 // Display Function Control
 #define ILI9486_PWCTR1		0xC0 // Power control setting
 #define ILI9486_PWCTR2		0xC1 // Power control setting
 #define ILI9486_PWCTR3		0xC2 // In normal mode (Full colors)
@@ -60,8 +61,6 @@
 #define ILI9486_DISPOFF		0x28
 #define ILI9486_RAMWR		0x2C
 
-#define ILI9486_RAMWR		0x2C
-
 #define DELAY			0x80
 
 #define DEVICE_NAME "ili9486"
@@ -73,54 +72,84 @@
 static u_int refreshrate = REFRESHRATE;
 module_param(refreshrate, uint, 0);
 
-static const u16 init_cmds1[] = {
+// https://sourceforge.net/p/rozoom/code-0/6/tree/trunk/Arduino/libraries/UTFT/tft_drivers/ili9486/initlcd.h
+// https://www.youtube.com/watch?v=tTT4Lb1jr4s
+
+static const u16 init_cmds[] = {
 	// Init for ili9486, part 1 (red or green tab)
-	7,			// 13 commands in list:
+	21,
+
 	ILI9486_SWRESET, DELAY,	// 1: Software reset, 0 args, w/delay
 	150,			// 150 ms delay
+
 	ILI9486_DISPOFF, DELAY,	// 4: Main screen turn off, no args w/delay
 	100,
+
 	ILI9486_SLPOUT, DELAY,	// 2: Out of sleep mode, 0 args, w/delay
 	255,			// 255 ms delay
-	ILI9486_COLMOD, 1,
-	0x55,
-	ILI9486_MADCTL, 1,
-	ILI9486_ROTATION,
-	ILI9486_PWCTR3, 1,
-	0x44,
-	ILI9486_VMCTR1, 4,
-	0x00, 0x00, 0x00, 0x00
-}; // 16-bit color
 
-static const u16 init_cmds2[] = {
-	// Init for ili9486, part 2
-	2,			// 2 commands in list:
+	0xF2, 9,
+	0x1C, 0xA3, 0x32, 0x02, 0xB2, 0x12, 0xFF, 0x12, 0x00,
+
+	0xF1, 2,
+	0x36, 0xA4,
+
+	0xF8, 2,
+	0x21, 0x04,
+
+	0xF9, 2,
+	0x00, 0x08,
+
+	ILI9486_PWCTR1, 2,
+	0x0D, 0x0D,
+
+	ILI9486_PWCTR2, 2,
+	0x43, 0x00,
+
+	ILI9486_PWCTR3, 1,
+	0x00,
+
+	ILI9486_VMCTR1, 2,
+	0x00, 0x48,
+
+	ILI9486_DFCTR, 3,
+	0x00, 0x22, 0x3B,
+
+	ILI9486_GMCTRP1, 15,	// PGAMCTRL (Positive Gamma Control)
+	0x0F, 0x24, 0x1C, 0x0A,
+	0x0F, 0x08, 0x43, 0x88,
+	0x32, 0x0F, 0x10, 0x06,
+	0x0F, 0x07, 0x00,
+
+	ILI9486_GMCTRN1, 15,	// NGAMCTRL (Negative Gamma Control)
+	0x0F, 0x38, 0x30, 0x09,
+	0x0F, 0x0F, 0x4E, 0x77,
+	0x3C, 0x07, 0x10, 0x05,
+	0x23, 0x1B, 0x00,
+
+	ILI9486_INVOFF, 1,	// Display Inversion OFF
+	0x00,
+
+	ILI9486_MADCTL, 1,	// Memory Access Control
+	ILI9486_ROTATION,
+
+	ILI9486_COLMOD, 1,	// Interface Pixel Format
+	0x55,
+
 	ILI9486_CASET, 4,	// 1: Column addr set, 4 args, no delay:
 	0x00, 0x00,		// XSTART = 0
-	0x01, 0x3F,		// XEND = 320
+	0x01, 0xDF,		// XEND = 480
+
 	ILI9486_RASET, 4,	// 2: Row addr set, 4 args, no delay:
 	0x00, 0x00,		// XSTART = 0
-	0x01, 0xDF		// XEND = 480
-};
+	0x01, 0x3F,		// XEND = 320
 
-static const u16 init_cmds3[] = {
-	// Init for ili9486, part 3
-	4,			// 4 commands in list:
-	ILI9486_GMCTRP1, 15,	// 1: Magical unicorn dust, 16 args, no delay:
-	0x0F, 0x1F, 0x1C, 0x0C,
-	0x0F, 0x08, 0x48, 0x98,
-	0x37, 0x0A, 0x13, 0x04,
-	0x11, 0x0D, 0x00,
-	ILI9486_GMCTRN1, 15,	// 2: Sparkles and rainbows, 16 args, no delay:
-	0x0F, 0x32, 0x2E, 0x0B,
-	0x0D, 0x05, 0x47, 0x75,
-	0x37, 0x06, 0x10, 0x03,
-	0x24, 0x20, 0x00,
-	ILI9486_NORON, DELAY,	// 3: Normal display on, no args, w/delay
-	10,			// 10 ms delay
 	ILI9486_DISPON, DELAY,	// 4: Main screen turn on, no args w/delay
+	100,
+
+	ILI9486_RAMWR, DELAY,
 	100
-};
+}; // 16-bit color
 
 enum ili9486_pin {
 	PIN_DB0 = 0,	/* Optional */
@@ -152,6 +181,8 @@ struct ili9486_data {
 	struct mutex io_lock;
 	u32 height;
 	u32 width;
+	struct device_attribute dev_attr_power;
+	u8 statePower;
 	//u16 *ssbuf;
 };
 
@@ -182,8 +213,8 @@ static void ili9486_write_data(struct ili9486_data *lcd, u16 *buff, size_t buff_
 {
 	int cnt;
 	gpiod_set_value(lcd->gpiod_rs, 1);
-	gpiod_set_value(lcd->gpiod_wr, 0);
 	for (cnt = 0; cnt < buff_size; cnt++) {
+		gpiod_set_value(lcd->gpiod_wr, 0);
 		gpiod_set_value(lcd->gpiod_data[PIN_DB0], (buff[cnt] & 0x0001)?1:0);
 		gpiod_set_value(lcd->gpiod_data[PIN_DB1], (buff[cnt] & 0x0002)?1:0);
 		gpiod_set_value(lcd->gpiod_data[PIN_DB2], (buff[cnt] & 0x0004)?1:0);
@@ -201,8 +232,34 @@ static void ili9486_write_data(struct ili9486_data *lcd, u16 *buff, size_t buff_
 		gpiod_set_value(lcd->gpiod_data[PIN_DB14], (buff[cnt] & 0x4000)?1:0);
 		gpiod_set_value(lcd->gpiod_data[PIN_DB15], (buff[cnt] & 0x8000)?1:0);
 		//dev_info(&lcd->dev, "data: 0x%04x", buff[cnt]);
+		gpiod_set_value(lcd->gpiod_wr, 1);
 	}
-	gpiod_set_value(lcd->gpiod_wr, 1);
+}
+
+static ssize_t power_show(struct device *child, struct device_attribute *attr, char *buf)
+{
+	struct ili9486_data *lcd = container_of(attr, struct ili9486_data,
+		dev_attr_power);
+
+	return sprintf(buf, "%d\n", lcd->statePower);
+}
+static ssize_t power_store(struct device *child, struct device_attribute *attr,
+	const char *buf, size_t len)
+{
+	struct ili9486_data *lcd = container_of(attr, struct ili9486_data,
+		dev_attr_power);
+
+	sscanf(buf, "%hhd", &lcd->statePower);
+
+	if (lcd->statePower == 1) {
+		dev_info(&lcd->dev, "ILI9486_DISPON\n");
+		ili9486_write_command(lcd, ILI9486_DISPON);
+	} else {
+		dev_info(&lcd->dev, "ILI9486_DISPOFF\n");
+		ili9486_write_command(lcd, ILI9486_DISPOFF);
+	}
+
+	return len;
 }
 
 static void ili9486_execute_command_list(struct ili9486_data *lcd, const u16 *addr)
@@ -274,6 +331,8 @@ static void ili9486_update_screen(struct ili9486_data *lcd)
 		ILI9486_WIDTH * ILI9486_HEIGHT * BPP / 16);
 
 	mutex_unlock(&(lcd->io_lock));
+
+	//dev_info(&lcd->dev, "ili9486_update_screen\n");
 }
 
 static void ili9486_load_image(struct ili9486_data *lcd, const u8 *image)
@@ -291,6 +350,31 @@ static void ili9486_load_image(struct ili9486_data *lcd, const u8 *image)
 	//	ILI9486_HEIGHT * BPP / 8);
 
 	memcpy(lcd->lcd_info->screen_base, (u8 *)image, 32768);
+
+	ili9486_update_screen(lcd);
+}
+
+static void ili9486_fill_rectangle(struct ili9486_data *lcd, u16 x, u16 y, u16 w, u16 h,
+						u16 color)
+{
+	u16 i = 0;
+	u16 j = 0;
+
+	if ((x >= ILI9486_WIDTH) || (y >= ILI9486_HEIGHT))
+		return;
+
+	if ((x + w - 1) > ILI9486_WIDTH)
+		w = ILI9486_WIDTH - x;
+
+	if ((y + h - 1) > ILI9486_HEIGHT)
+		h = ILI9486_HEIGHT - y;
+
+	for (j = 0; j < h; ++j) {
+		for (i = 0; i < w; ++i) {
+			lcd->lcd_info->screen_base[(x + ILI9486_WIDTH * y) +
+		(i + ILI9486_WIDTH * j)] = color;
+		}
+	}
 
 	ili9486_update_screen(lcd);
 }
@@ -548,9 +632,7 @@ static int ili9486_probe(struct platform_device *pdev)
 	dev_info(&pdev->dev, "Gpio RESET loaded");
 
 	ili9486_reset(lcd);
-	ili9486_execute_command_list(lcd, init_cmds1);
-	ili9486_execute_command_list(lcd, init_cmds2);
-	ili9486_execute_command_list(lcd, init_cmds3);
+	ili9486_execute_command_list(lcd, init_cmds);
 	ili9486_set_address_window(lcd, 0, 0, ILI9486_WIDTH - 1,
 						ILI9486_HEIGHT - 1);
 	dev_info(&pdev->dev, "device init completed\n");
@@ -639,9 +721,10 @@ static int ili9486_probe(struct platform_device *pdev)
 
 	// Test load image 480x320
 	ili9486_load_image(lcd, lcd_image);
+	//ili9486_fill_rectangle(lcd, 0, 0, ILI9486_WIDTH, ILI9486_HEIGHT, 0x07A5);
 	msleep(2000);
 
-	ret = register_framebuffer(info);
+	/*ret = register_framebuffer(info);
 	if (ret) {
 		fb_deferred_io_cleanup(info);
 		fb_dealloc_cmap(&info->cmap);
@@ -651,7 +734,25 @@ static int ili9486_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "Error: ret = %d\n", ret);
 		return ret;
 	}
-	dev_info(&pdev->dev, "The frame buffer registered\n");
+	dev_info(&pdev->dev, "The frame buffer registered\n");*/
+
+	lcd->dev_attr_power.attr.name = "powerOnOff";
+	lcd->dev_attr_power.attr.mode = S_IRUGO | S_IWUSR;
+	lcd->dev_attr_power.show = &power_show;
+	lcd->dev_attr_power.store = &power_store;
+	ret = device_create_file(&pdev->dev, &lcd->dev_attr_power);
+	if(ret != 0){
+		dev_err(&pdev->dev, "Error create attribute file %s!",
+			lcd->dev_attr_power.attr.name);
+		unregister_framebuffer(lcd->lcd_info);
+		fb_deferred_io_cleanup(info);
+		fb_dealloc_cmap(&info->cmap);
+		kfree(info->pseudo_palette);
+		vfree(vmem);
+		devm_kfree(&pdev->dev, lcd);
+		dev_err(&pdev->dev, "Error: ret = %d\n", ret);
+		return ret;
+	}
 
 	dev_info(&pdev->dev, "The ILI9486 driver probed\n");
 	return 0;
@@ -661,9 +762,11 @@ static int ili9486_remove(struct platform_device *pdev)
 {
 	struct ili9486_data *lcd = platform_get_drvdata(pdev);
 
+	device_remove_file(&pdev->dev, &lcd->dev_attr_power);
+
 	ili9486_write_command(lcd, ILI9486_DISPOFF);
 
-	unregister_framebuffer(lcd->lcd_info);
+	//unregister_framebuffer(lcd->lcd_info);
 	fb_deferred_io_cleanup(lcd->lcd_info);
 	fb_dealloc_cmap(&lcd->lcd_info->cmap);
 	kfree(lcd->lcd_info->pseudo_palette);

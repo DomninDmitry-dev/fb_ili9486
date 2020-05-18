@@ -32,10 +32,10 @@ my_pins: my_pins {
 	};
 
 	fragment@1 {
-		target = <&spi0>;
+		target-path = "/";
 		__overlay__ {
 			status = "okay";
-			ili: ili9486@0 {
+			ili: ili9486 {
 				compatible = "ilitek, ili9486";
 				pinctrl-names = "default";
 				pinctrl-0 = <&ili9486_pins>;

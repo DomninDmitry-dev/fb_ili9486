@@ -47,6 +47,8 @@
 #define ILI9486_PWCTR4		0xC3 // In idle mode (8 colors)
 #define ILI9486_PWCTR5		0xC4 // In partial mode + Full colors
 #define ILI9486_VMCTR1		0xC5 // VCOM control 1
+#define ILI9486_CABCCTRL9	0xC6
+
 #define ILI9486_INVOFF		0x20 // Display inversion off
 #define ILI9486_MADCTL		0x36 // Memory data access control
 #define ILI9486_COLMOD		0x3A // Interface pixel format
@@ -604,7 +606,7 @@ static int ili9486_probe(struct platform_device *pdev)
 	dev_info(&pdev->dev, "Gpio WR loaded");
 
 	/* The RS gets a GPIO pin number */
-	lcd->gpiod_rs = devm_gpiod_get_optional(&pdev->dev, "wr", GPIOD_OUT_LOW);
+	lcd->gpiod_rs = devm_gpiod_get_optional(&pdev->dev, "rs", GPIOD_OUT_LOW);
 	if (IS_ERR(lcd->gpiod_rs)) {
 		ret = PTR_ERR(lcd->gpiod_rs);
 		if (ret != -EPROBE_DEFER)
@@ -790,7 +792,6 @@ static struct platform_driver ili9486_driver = {
 	},
 	.probe = ili9486_probe,
 	.remove = ili9486_remove,
-	.id_table = ili9486_idtable,
 };
 
 module_platform_driver(ili9486_driver);

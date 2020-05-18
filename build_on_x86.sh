@@ -35,6 +35,11 @@ while [ ! -z "$1" ] ; do
                 echo "The board reboot"
                 ssh ${ADDR_BOARD} 'sudo reboot'
                 ;;
+            --comcopy)
+            echo "Build module and copy"
+            make
+            scp ${MODNAME}.ko ${ADDR_BOARD}:${MODULEDIR}
+            ;;
         esac
         shift
 done

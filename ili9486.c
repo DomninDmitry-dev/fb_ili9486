@@ -34,7 +34,7 @@
 #define ILI9486_HEIGHT		100
 #define ILI9486_XSTART		0
 #define ILI9486_YSTART		0
-#define ILI9486_ROTATION	(ILI9486_MADCTL_MX)
+#define ILI9486_ROTATION	(ILI9486_MADCTL_MV | ILI9486_MADCTL_MY)
 
 // Commands
 #define ILI9486_SWRESET		0x01 // SoftWare Reset
@@ -340,7 +340,7 @@ static void ili9486_load_image(struct ili9486_data *lcd, const u8 *image)
 	//memcpy(lcd->lcd_info->screen_base, (u8 *)vmem, ILI9486_WIDTH *
 	//	ILI9486_HEIGHT * BPP / 8);
 
-	memcpy(lcd->lcd_info->screen_base, (u8 *)image, 32768);
+	//memcpy(lcd->ssbuf, (u8 *)image, 32768);
 
 	ili9486_update_screen(lcd);
 
@@ -697,7 +697,7 @@ static int ili9486_probe(struct platform_device *pdev)
 	// Test load image 480x320
 	ili9486_load_image(lcd, lcd_image);
 	//ili9486_fill_rectangle(lcd, 0, 0, ILI9486_WIDTH, ILI9486_HEIGHT, 0x07A5);
-	msleep(2000);
+	msleep(5000);
 
 	ret = register_framebuffer(info);
 	if (ret) {

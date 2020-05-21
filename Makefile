@@ -5,7 +5,7 @@ obj-m := ${MODNAME}.o
 
 else
 
-#CFLAGS_$(MODNAME_MOD).o := -DDEBUG
+#CFLAGS_$(MODNAME).o := -DDEBUG
 
 .PHONY: default clean
 

@@ -17,7 +17,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/platform_device.h> /* For platform devices */
 
-#include "ili9486_image.h"
+#include "ili9486_image_128x128.h"
 
 // https://www.displaytech-us.com/forum/ili9341-initialization-code
 
@@ -30,11 +30,11 @@
 #define ILI9486_MADCTL_MH	0x04
 
 // 1.44" display, default orientation
-#define ILI9486_WIDTH		300
-#define ILI9486_HEIGHT		100
+#define ILI9486_WIDTH		128
+#define ILI9486_HEIGHT		128
 #define ILI9486_XSTART		0
 #define ILI9486_YSTART		0
-#define ILI9486_ROTATION	(ILI9486_MADCTL_MV | ILI9486_MADCTL_MY)
+#define ILI9486_ROTATION	(ILI9486_MADCTL_MX)
 
 // Commands
 #define ILI9486_SWRESET		0x01 // SoftWare Reset
@@ -81,7 +81,7 @@ module_param(refreshrate, uint, 0);
 
 static const u16 init_cmds[] = {
 	// Init for ili9486, part 1 (red or green tab)
-	16,
+	15,
 
 	ILI9486_SWRESET, DELAY,	// 1: Software reset, 0 args, w/delay
 	150,			// 150 ms delay
@@ -195,6 +195,7 @@ static void ili9486_write_command(struct ili9486_data *lcd, u8 cmd)
 	gpiod_set_value(lcd->gpiod_data[PIN_DB6], (cmd & 0x40)?1:0);
 	gpiod_set_value(lcd->gpiod_data[PIN_DB7], (cmd & 0x80)?1:0);
 	//dev_info(&lcd->dev, "command: 0x%02x", cmd);
+	pr_debug("command: 0x%02x", cmd);
 	gpiod_set_value(lcd->gpiod_wr, 1);
 }
 
@@ -222,8 +223,7 @@ static void ili9486_write_data(struct ili9486_data *lcd, u16 *buff, size_t buff_
 		gpiod_set_value(lcd->gpiod_data[PIN_DB15], (buff[cnt] & 0x8000)?1:0);
 		//dev_info(&lcd->dev, "data[%d]: 0x%04x", cnt, buff[cnt]);
 		gpiod_set_value(lcd->gpiod_wr, 1);
-		//ndelay(99999);
-		//pr_debug("data: 0x%04x", buff[cnt]);
+		pr_debug("data: 0x%04x", buff[cnt]);
 	}
 }
 
@@ -276,6 +276,7 @@ static void ili9486_execute_command_list(struct ili9486_data *lcd, const u16 *ad
 				ms = 500;
 			mdelay(ms);
 			//dev_info(&lcd->dev, "delay: 0x%04x", ms);
+			pr_debug("delay: 0x%04x", ms);
 		}
 	}
 }
@@ -340,7 +341,7 @@ static void ili9486_load_image(struct ili9486_data *lcd, const u8 *image)
 	//memcpy(lcd->lcd_info->screen_base, (u8 *)vmem, ILI9486_WIDTH *
 	//	ILI9486_HEIGHT * BPP / 8);
 
-	//memcpy(lcd->ssbuf, (u8 *)image, 32768);
+	memcpy(lcd->lcd_info->screen_base, (u8 *)image, 32768); // 89600
 
 	ili9486_update_screen(lcd);
 
@@ -579,7 +580,7 @@ static int ili9486_probe(struct platform_device *pdev)
 		devm_kfree(&pdev->dev, lcd);
 		return ret;
 	}
-	ret = gpiod_direction_output(lcd->gpiod_wr, 0);
+	gpiod_direction_output(lcd->gpiod_wr, 0);
 	dev_info(&pdev->dev, "Gpio WR loaded");
 
 	/* The RS gets a GPIO pin number */
@@ -592,7 +593,7 @@ static int ili9486_probe(struct platform_device *pdev)
 		devm_kfree(&pdev->dev, lcd);
 		return ret;
 	}
-	ret = gpiod_direction_output(lcd->gpiod_rs, 0);
+	gpiod_direction_output(lcd->gpiod_rs, 0);
 	dev_info(&pdev->dev, "Gpio RS loaded");
 
 	/* The RST gets a GPIO pin number */
@@ -605,13 +606,13 @@ static int ili9486_probe(struct platform_device *pdev)
 		devm_kfree(&pdev->dev, lcd);
 		return ret;
 	}
-	ret = gpiod_direction_output(lcd->gpiod_reset, 0);
+	gpiod_direction_output(lcd->gpiod_reset, 0);
 	dev_info(&pdev->dev, "Gpio RESET loaded");
 
 	ili9486_reset(lcd);
 	ili9486_execute_command_list(lcd, init_cmds);
-	ili9486_set_address_window(lcd, 0, 0, ILI9486_WIDTH - 1,
-						ILI9486_HEIGHT - 1);
+	//ili9486_set_address_window(lcd, 0, 0, ILI9486_WIDTH - 1,
+	//					ILI9486_HEIGHT - 1);
 	dev_info(&pdev->dev, "device init completed\n");
 
 	// Init fb
@@ -696,10 +697,9 @@ static int ili9486_probe(struct platform_device *pdev)
 
 	// Test load image 480x320
 	ili9486_load_image(lcd, lcd_image);
-	//ili9486_fill_rectangle(lcd, 0, 0, ILI9486_WIDTH, ILI9486_HEIGHT, 0x07A5);
-	msleep(5000);
+	//msleep(2000);
 
-	ret = register_framebuffer(info);
+	/*ret = register_framebuffer(info);
 	if (ret) {
 		fb_deferred_io_cleanup(info);
 		fb_dealloc_cmap(&info->cmap);
@@ -709,7 +709,7 @@ static int ili9486_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "Error: ret = %d\n", ret);
 		return ret;
 	}
-	dev_info(&pdev->dev, "The frame buffer registered\n");
+	dev_info(&pdev->dev, "The frame buffer registered\n");*/
 
 	lcd->dev_attr_power.attr.name = "powerOnOff";
 	lcd->dev_attr_power.attr.mode = S_IRUGO | S_IWUSR;

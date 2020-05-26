@@ -5,6 +5,8 @@ obj-m := ${MODNAME}.o
 
 else
 
+# Добавляем -DDEBUG, если в конфигурации ядра 
+# отключена опция CONFIG_DYNAMIC_DEBUG
 #CFLAGS_$(MODNAME).o := -DDEBUG
 
 .PHONY: default clean

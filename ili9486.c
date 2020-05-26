@@ -16,6 +16,7 @@
 #include <linux/io.h>
 #include <linux/dma-mapping.h>
 #include <linux/platform_device.h> /* For platform devices */
+#include <linux/kthread.h>
 
 #include "ili9486_image_128x128.h"
 
@@ -173,6 +174,7 @@ struct ili9486_data {
 	struct device_attribute dev_attr_power;
 	u8 statePower;
 	//u8 *ssbuf;
+	struct task_struct *writing_thread;
 };
 
 static void ili9486_reset(struct ili9486_data *lcd)
@@ -221,8 +223,8 @@ static void ili9486_write_data(struct ili9486_data *lcd, u16 *buff, size_t buff_
 		gpiod_set_value(lcd->gpiod_data[PIN_DB13], (buff[cnt] & 0x2000)?1:0);
 		gpiod_set_value(lcd->gpiod_data[PIN_DB14], (buff[cnt] & 0x4000)?1:0);
 		gpiod_set_value(lcd->gpiod_data[PIN_DB15], (buff[cnt] & 0x8000)?1:0);
-		//dev_info(&lcd->dev, "data[%d]: 0x%04x", cnt, buff[cnt]);
 		gpiod_set_value(lcd->gpiod_wr, 1);
+		//dev_info(&lcd->dev, "data[%d]: 0x%04x", cnt, buff[cnt]);
 		pr_debug("data: 0x%04x", buff[cnt]);
 	}
 }
@@ -343,7 +345,7 @@ static void ili9486_load_image(struct ili9486_data *lcd, const u8 *image)
 
 	memcpy(lcd->lcd_info->screen_base, (u8 *)image, 32768); // 89600
 
-	ili9486_update_screen(lcd);
+	//ili9486_update_screen(lcd);
 
 	//mutex_lock(&(lcd->io_lock));
 
@@ -355,6 +357,23 @@ static void ili9486_load_image(struct ili9486_data *lcd, const u8 *image)
 	//ili9486_write_data(lcd, (u16 *)image, 10000);
 
 	//mutex_unlock(&(lcd->io_lock));
+}
+
+static int lcd_write_thread(void *data)
+{
+	struct ili9486_data *lcd = data;
+
+	while (!kthread_should_stop()) {
+		dev_info(&lcd->dev, "write thread\n");
+
+		//ili9486_update_screen(lcd);
+
+		kthread_park(lcd->writing_thread);
+		if (kthread_should_park())
+			kthread_parkme();
+	}
+	dev_info(&lcd->dev, "stop thread\n");
+	return 0;
 }
 
 static ssize_t ili9486fb_write(struct fb_info *info, const char __user *buf,
@@ -695,7 +714,12 @@ static int ili9486_probe(struct platform_device *pdev)
 	// 	return -ENOMEM;
 	// }
 
+	lcd->writing_thread = kthread_create(lcd_write_thread,
+				&lcd, "writing_lcd");
+
 	// Test load image 480x320
+	kthread_unpark(lcd->writing_thread);
+	wake_up_process(lcd->writing_thread);
 	ili9486_load_image(lcd, lcd_image);
 	//msleep(2000);
 
@@ -742,11 +766,15 @@ static int ili9486_remove(struct platform_device *pdev)
 
 	device_remove_file(&pdev->dev, &lcd->dev_attr_power);
 
+	kthread_stop(lcd->writing_thread);
+
 	unregister_framebuffer(lcd->lcd_info);
 	fb_deferred_io_cleanup(lcd->lcd_info);
 	fb_dealloc_cmap(&lcd->lcd_info->cmap);
 	kfree(lcd->lcd_info->pseudo_palette);
 	vfree(lcd->lcd_info->screen_base);
+
+	mutex_destroy(&lcd->io_lock);
 
 	framebuffer_release(lcd->lcd_info);
 

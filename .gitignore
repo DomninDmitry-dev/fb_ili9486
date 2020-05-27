@@ -1,2 +1,13 @@
 envsetup-rpi-zero.sh
+*.ko
+*.ko.cmd
+*.mod.c
+*.o
+*.o.cmd
+*.o.mod
+*.mod.o.cmd
+*.order
+*.symvers
+.tmp_versions/
+
 

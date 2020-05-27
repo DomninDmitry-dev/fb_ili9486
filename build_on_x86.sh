@@ -8,7 +8,7 @@ while [ ! -z "$1" ] ; do
                 make clean
                 rm -f ${DTSDIR}/${MODNAME}.dtbo
                 ;;
-            --module)
+            --compile)
                 echo "Build module"
                 make
                 ;;
@@ -35,11 +35,26 @@ while [ ! -z "$1" ] ; do
                 echo "The board reboot"
                 ssh ${ADDR_BOARD} 'sudo reboot'
                 ;;
-            --comcopy)
-            echo "Build module and copy"
-            make
-            scp ${MODNAME}.ko ${ADDR_BOARD}:${MODULEDIR}
-            ;;
+            --compile_copy)
+                echo "The module build and copy"
+                make
+                scp ${MODNAME}.ko ${ADDR_BOARD}:${MODULEDIR}
+                ;;
+            --compile_copy_reboot)
+                echo "The module build, copy and reboot"
+                make
+                scp ${MODNAME}.ko ${ADDR_BOARD}:${MODULEDIR}
+                sleep 1
+                ssh ${ADDR_BOARD} 'sudo reboot'
+                ;;
+            --compile_copy_reload)
+                echo "The module build, rmmod and insmod"
+                make
+                scp ${MODNAME}.ko ${ADDR_BOARD}:${MODULEDIR}
+                ssh ${ADDR_BOARD} 'sudo modprobe -r ili9486'
+                sleep 1
+                ssh ${ADDR_BOARD} 'sudo modprobe ili9486'
+                ;;
         esac
         shift
 done

@@ -16,7 +16,6 @@
 #include <linux/io.h>
 #include <linux/dma-mapping.h>
 #include <linux/platform_device.h> /* For platform devices */
-#include <linux/kthread.h>
 
 // https://www.displaytech-us.com/forum/ili9341-initialization-code
 
@@ -29,11 +28,12 @@
 #define ILI9486_MADCTL_MH	0x04
 
 // 1.44" display, default orientation
-#define ILI9486_WIDTH		320
-#define ILI9486_HEIGHT		480
+#define ILI9486_WIDTH		480
+#define ILI9486_HEIGHT		320
 #define ILI9486_XSTART		0
 #define ILI9486_YSTART		0
-#define ILI9486_ROTATION	(ILI9486_MADCTL_MX)
+#define ILI9486_ROTATION	(ILI9486_MADCTL_MX | ILI9486_MADCTL_MY | \
+					ILI9486_MADCTL_MV | ILI9486_MADCTL_BGR)
 
 // Commands
 #define ILI9486_SWRESET		0x01 // SoftWare Reset
@@ -80,7 +80,7 @@ module_param(refreshrate, uint, 0);
 
 static const u16 init_cmds[] = {
 	// Init for ili9486, part 1 (red or green tab)
-	15,
+	16,
 
 	ILI9486_SWRESET, DELAY,	// 1: Software reset, 0 args, w/delay
 	150,			// 150 ms delay
@@ -98,22 +98,25 @@ static const u16 init_cmds[] = {
 	0x43, 0x00,
 
 	ILI9486_PWCTR3, 1,
-	0x44,
+	0x00,
 
-	ILI9486_VMCTR1, 4,
-	0x00, 0x00, 0x00, 0x00,
+	ILI9486_VMCTR1, 2,
+	0x00, 0x48,
+
+	ILI9486_DFCTR, 3,	// Display Function Control
+	0x00, 0x01, 0x3B,	// (second byte) 0x6x = Rotate display 180 deg.
 
 	ILI9486_GMCTRP1, 15,	// PGAMCTRL (Positive Gamma Control)
-	0x0F, 0x1F, 0x1C, 0x0C,
-	0x0F, 0x08, 0x48, 0x98,
-	0x37, 0x0A, 0x13, 0x04,
-	0x11, 0x0D, 0x00,
+	0x0F, 0x24, 0x1C, 0x0A,
+	0x0F, 0x08, 0x43, 0x88,
+	0x32, 0x0F, 0x10, 0x06,
+	0x0F, 0x07, 0x00,
 
 	ILI9486_GMCTRN1, 15,	// NGAMCTRL (Negative Gamma Control)
-	0x0F, 0x32, 0x2E, 0x0B,
-	0x0D, 0x05, 0x47, 0x75,
-	0x37, 0x06, 0x10, 0x03,
-	0x24, 0x20, 0x00,
+	0x0F, 0x38, 0x30, 0x09,
+	0x0F, 0x0F, 0x4E, 0x77,
+	0x3C, 0x07, 0x10, 0x05,
+	0x23, 0x1B, 0x00,
 
 	ILI9486_INVOFF, 1,	// Display Inversion OFF
 	0x00,
@@ -166,10 +169,6 @@ struct ili9486_data {
 	struct mutex io_lock;
 	u32 height;
 	u32 width;
-	struct device_attribute dev_attr_power;
-	u8 statePower;
-	//u8 *ssbuf;
-	struct task_struct *writing_thread;
 };
 
 static void ili9486_reset(struct ili9486_data *lcd)
@@ -213,32 +212,6 @@ static void ili9486_write_data(struct ili9486_data *lcd, u16 *buff, size_t buff_
 	}
 }
 
-static ssize_t power_show(struct device *child, struct device_attribute *attr, char *buf)
-{
-	struct ili9486_data *lcd = container_of(attr, struct ili9486_data,
-		dev_attr_power);
-
-	return sprintf(buf, "%d\n", lcd->statePower);
-}
-static ssize_t power_store(struct device *child, struct device_attribute *attr,
-	const char *buf, size_t len)
-{
-	struct ili9486_data *lcd = container_of(attr, struct ili9486_data,
-		dev_attr_power);
-
-	sscanf(buf, "%hhd", &lcd->statePower);
-
-	if (lcd->statePower == 1) {
-		dev_info(&lcd->dev, "ILI9486_DISPON\n");
-		ili9486_write_command(lcd, ILI9486_DISPON);
-	} else {
-		dev_info(&lcd->dev, "ILI9486_DISPOFF\n");
-		ili9486_write_command(lcd, ILI9486_DISPOFF);
-	}
-
-	return len;
-}
-
 static void ili9486_execute_command_list(struct ili9486_data *lcd, const u16 *addr)
 {
 	u16 numCommands, numArgs;
@@ -270,15 +243,18 @@ static void ili9486_execute_command_list(struct ili9486_data *lcd, const u16 *ad
 static void ili9486_set_address_window(struct ili9486_data *lcd, u16 x0, u16 y0,
 	u16 x1, u16 y1)
 {
-	u16 data[] = {0x00, x0 + ILI9486_XSTART, x1 >> 8, (x1 & 0x00FF) + ILI9486_XSTART};
+	u16 data[] = { x0 >> 8, (x0 & 0xFF) + ILI9486_XSTART,
+			x1 >> 8, (x1 & 0xFF) + ILI9486_XSTART };
 
 	ili9486_write_command(lcd, ILI9486_CASET);
 	ili9486_write_data(lcd, data, sizeof(data) / 2);
 
 	// row address set
 	ili9486_write_command(lcd, ILI9486_RASET);
-	data[1] = y0 + ILI9486_YSTART;
-	data[3] = y1 + ILI9486_YSTART;
+	data[0] = y0 >> 8;
+	data[1] = (y0 & 0xFF) + ILI9486_YSTART;
+	data[2] = y1 >> 8;
+	data[3] = (y1 & 0xFF) + ILI9486_YSTART;
 	ili9486_write_data(lcd, data, sizeof(data) / 2);
 
 	// write to RAM
@@ -295,13 +271,14 @@ static void ili9486_update_screen(struct ili9486_data *lcd)
 
 	/* Blast framebuffer to ILI9486 internal display RAM */
 	ili9486_write_data(lcd, (u16*)lcd->lcd_info->screen_base,
-		ILI9486_WIDTH * ILI9486_HEIGHT * BPP / 16);
+		ILI9486_WIDTH * ILI9486_HEIGHT);
 
 	mutex_unlock(&(lcd->io_lock));
 
 	//dev_info(&lcd->dev, "ili9486_update_screen\n");
 }
 
+// Если чтото передать в /dev/fb1, то вызовется эта функция
 static ssize_t ili9486fb_write(struct fb_info *info, const char __user *buf,
 		size_t count, loff_t *ppos)
 {
@@ -589,12 +566,15 @@ static int ili9486_probe(struct platform_device *pdev)
 				GFP_KERNEL);
 	if (!ili9486fb_defio) {
 		dev_err(&pdev->dev, "Couldn't allocate deferred io.\n");
+		mutex_destroy(&lcd->io_lock);
 		vfree(vmem);
 		devm_kfree(&pdev->dev, lcd);
 		return -ENOMEM;
 	}
 
-	dev_info(&pdev->dev, "HZ = %d\n", HZ);
+	dev_info(&pdev->dev, "HZ = %d\n", (int)HZ);
+	dev_info(&pdev->dev, "PAGE_SIZE = %d\n", (int)PAGE_SIZE);
+	
 	ili9486fb_defio->delay = HZ / refreshrate;
 	ili9486fb_defio->deferred_io = ili9486fb_deferred_io;
 	info->fbdefio = ili9486fb_defio;
@@ -620,6 +600,7 @@ static int ili9486_probe(struct platform_device *pdev)
 
 	ret = fb_alloc_cmap(&info->cmap, MAX_PALETTE, 0);
 	if (ret < 0) {
+		mutex_destroy(&lcd->io_lock);
 		kfree(info->pseudo_palette);
 		vfree(vmem);
 		devm_kfree(&pdev->dev, lcd);
@@ -636,6 +617,7 @@ static int ili9486_probe(struct platform_device *pdev)
 	if (ret) {
 		fb_deferred_io_cleanup(info);
 		fb_dealloc_cmap(&info->cmap);
+		mutex_destroy(&lcd->io_lock);
 		kfree(info->pseudo_palette);
 		vfree(vmem);
 		devm_kfree(&pdev->dev, lcd);
@@ -643,24 +625,6 @@ static int ili9486_probe(struct platform_device *pdev)
 		return ret;
 	}
 	dev_info(&pdev->dev, "The frame buffer registered\n");
-
-	lcd->dev_attr_power.attr.name = "powerOnOff";
-	lcd->dev_attr_power.attr.mode = S_IRUGO | S_IWUSR;
-	lcd->dev_attr_power.show = &power_show;
-	lcd->dev_attr_power.store = &power_store;
-	ret = device_create_file(&pdev->dev, &lcd->dev_attr_power);
-	if(ret != 0){
-		dev_err(&pdev->dev, "Error create attribute file %s!",
-			lcd->dev_attr_power.attr.name);
-		unregister_framebuffer(lcd->lcd_info);
-		fb_deferred_io_cleanup(info);
-		fb_dealloc_cmap(&info->cmap);
-		kfree(info->pseudo_palette);
-		vfree(vmem);
-		devm_kfree(&pdev->dev, lcd);
-		dev_err(&pdev->dev, "Error: ret = %d\n", ret);
-		return ret;
-	}
 
 	platform_set_drvdata(pdev, lcd);
 	dev_info(&pdev->dev, "The ILI9486 driver probed\n");
@@ -673,18 +637,12 @@ static int ili9486_remove(struct platform_device *pdev)
 
 	ili9486_write_command(lcd, ILI9486_DISPOFF);
 
-	device_remove_file(&pdev->dev, &lcd->dev_attr_power);
-
-	kthread_stop(lcd->writing_thread);
-
 	unregister_framebuffer(lcd->lcd_info);
 	fb_deferred_io_cleanup(lcd->lcd_info);
 	fb_dealloc_cmap(&lcd->lcd_info->cmap);
+	mutex_destroy(&lcd->io_lock);
 	kfree(lcd->lcd_info->pseudo_palette);
 	vfree(lcd->lcd_info->screen_base);
-
-	mutex_destroy(&lcd->io_lock);
-
 	framebuffer_release(lcd->lcd_info);
 
 	dev_info(&pdev->dev, "The ILI9486 driver removed\n");
